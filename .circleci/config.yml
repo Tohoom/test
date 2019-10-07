@@ -1,0 +1,45 @@
+version: 2
+jobs: 
+  build: 
+    docker:
+      - image: circleci/node:8.9.4
+    steps: 
+      - checkout
+      - run: 
+          command: |
+              wget -qO- https://developer.salesforce.com/media/salesforce-cli/sfdx-linux-amd64.tar.xz | tar xJf -
+              ./sfdx-cli-*/install
+          name: "Install SFDX"
+      - run: 
+          command: "echo $SFDXURL_HUB > /tmp/sfdx.url"
+          name: "Create temp sfdxurl file"
+      - run: 
+          command: "sfdx force:auth:sfdxurl:store -f /tmp/sfdx.url -a circle_build_$CIRCLE_BUILD_NUM --setdefaultdevhubusername"
+          name: "Authorize DeveloperHub Org"
+      - run: 
+          command: "./dx-utils/setup_scratch_org.sh circle_build_$CIRCLE_BUILD_NUM do_not_open_org\n"
+          name: "Setup Scratch Org"
+      - run: 
+          command: "sfdx force:org:delete -u circle_build_$CIRCLE_BUILD_NUM -p\n"
+          name: "Delete Scratch Org"
+      - store_test_results:
+          path: test_results
+      - run: 
+          command: |
+              #update this to whatever the packaging branch should be!
+              if [[ $CIRCLE_BRANCH != "master" ]];then echo $CIRCLE_BRANCH 
+              else 
+              #convert DX to legacy metadata
+              ./dx-utils/convert_metadata.sh
+              
+              #echo sfdxurls from env to temp files
+              echo $SFDXURL_PKG > /tmp/sfdx_pkg.url
+              
+              #authenticate to pkg org
+              sfdx force:auth:sfdxurl:store -f /tmp/sfdx_pkg.url -a pkg_org
+              
+              #deploy metadata
+              echo "Deploying to $CIRCLE_BRANCH"
+              ./dx-utils/deploy.sh pkg_org
+              fi
+          name: "Deploy To Golden Packaging Org"
